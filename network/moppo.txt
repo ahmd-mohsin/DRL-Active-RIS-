@@ -1,0 +1,23 @@
+NetworkEnv-v0:
+  n_steps: 2048
+  batch_size: 64
+  n_epochs: 10
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  clip_range_vf: null
+  ent_coef: 0.0
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  use_sde: false
+  sde_sample_freq: -1
+  target_kl: null
+  tensorboard_log: null
+  policy_kwargs:
+    net_arch:
+      pi: [64, 64]
+      vf: [64, 64]
+  verbose: 1
+  seed: null
+  device: "auto"
+  _init_setup_model: true

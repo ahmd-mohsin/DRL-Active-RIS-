@@ -1,0 +1,69 @@
+'      pi':
+  image:
+    tag: ' [64, 64]'
+'      vf':
+  image:
+    tag: ' [64, 64]'
+'    net_arch':
+  image:
+    tag: ''
+'  _init_setup_model':
+  image:
+    tag: ' true'
+'  batch_size':
+  image:
+    tag: ' 64'
+'  clip_range':
+  image:
+    tag: ' 0.2'
+'  clip_range_vf':
+  image:
+    tag: ' null'
+'  device':
+  image:
+    tag: ' "auto"'
+'  ent_coef':
+  image:
+    tag: ' 0.0'
+'  gae_lambda':
+  image:
+    tag: ' 0.95'
+'  gamma':
+  image:
+    tag: ' 0.99'
+'  max_grad_norm':
+  image:
+    tag: ' 0.5'
+'  n_epochs':
+  image:
+    tag: ' 10'
+'  n_steps':
+  image:
+    tag: ' 2048'
+'  policy_kwargs':
+  image:
+    tag: ''
+'  sde_sample_freq':
+  image:
+    tag: ' -1'
+'  seed':
+  image:
+    tag: ' null'
+'  target_kl':
+  image:
+    tag: ' null'
+'  tensorboard_log':
+  image:
+    tag: ' null'
+'  use_sde':
+  image:
+    tag: ' false'
+'  verbose':
+  image:
+    tag: ' 1'
+'  vf_coef':
+  image:
+    tag: ' 0.5'
+NetworkEnv-v0:
+  image:
+    tag: ''
