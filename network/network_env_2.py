@@ -120,79 +120,21 @@ class NetworkEnv(gym.Env):
             ]
         )
         self.observation_space = spaces.Box(low=low, high=high, dtype=np.float32)
-        # Update RIS initialization to use cfg.n_elements
-        self.aRIS = RIS("UAV", cfg.n_elements, position=cfg.init_ris_pos)
-        self.tRIS = RIS("tRIS", cfg.n_elements, position=cfg.tris_loc)
+        # Update RIS initialization to include amplification
+        self.aRIS = ActiveRIS("UAV", cfg.n_elements, position=cfg.init_ris_pos)
+        self.tRIS = ActiveRIS("tRIS", cfg.n_elements, position=cfg.tris_loc)
 
-        # Ensure phase shifts are initialized correctly
+        # Ensure phase shifts and amplification factors are initialized correctly
         self.aRIS.phase_shifts = np.zeros(cfg.n_elements)
+        self.aRIS.amplification_factors = np.ones(cfg.n_elements)
         self.tRIS.phase_shifts = np.zeros(cfg.n_elements)
+        self.tRIS.amplification_factors = np.ones(cfg.n_elements)
 
         # action space
         if self.ris_opt and self.uav_opt and self.ma_scheme == "noma":
             self.action_space = spaces.Dict(
-            {
-                "uav": spaces.Discrete(5),  # left, right, up, down, stay
-                "bs1": spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
-                "aris_phase": spaces.Box(
-                    low=-1,
-                    high=1,
-                    shape=(self.cfg.n_elements,),
-                    dtype=np.float32,
-                ),
-                "aris_amp": spaces.Box(
-                    low=0,
-                    high=1,
-                    shape=(self.cfg.n_elements,),
-                    dtype=np.float32,
-                ),
-                "tris_phase": spaces.Box(
-                    low=-1,
-                    high=1,
-                    shape=(self.cfg.n_elements,),
-                    dtype=np.float32,
-                ),
-                "tris_amp": spaces.Box(
-                    low=0,
-                    high=1,
-                    shape=(self.cfg.n_elements,),
-                    dtype=np.float32,
-                ),
-              }
-            )
-        elif self.ris_opt and self.uav_opt and self.ma_scheme == "oma":
-            self.action_space = spaces.Dict(
                 {
                     "uav": spaces.Discrete(5),  # left, right, up, down, stay
-                    "aris_phase": spaces.Box(
-                        low=-1,
-                        high=1,
-                        shape=(self.cfg.n_elements,),
-                        dtype=np.float32,
-                    ),
-                    "aris_amp": spaces.Box(
-                        low=0,
-                        high=1,
-                        shape=(self.cfg.n_elements,),
-                        dtype=np.float32,
-                    ),
-                    "tris_phase": spaces.Box(
-                        low=-1,
-                        high=1,
-                        shape=(self.cfg.n_elements,),
-                        dtype=np.float32,
-                    ),
-                    "tris_amp": spaces.Box(
-                        low=0,
-                        high=1,
-                        shape=(self.cfg.n_elements,),
-                        dtype=np.float32,
-                    ),
-                }
-            )
-        elif self.ris_opt and (not self.uav_opt) and self.ma_scheme == "noma":
-            self.action_space = spaces.Dict(
-                {
                     "bs1": spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
                     "aris_phase": spaces.Box(
                         low=-1,
@@ -220,13 +162,57 @@ class NetworkEnv(gym.Env):
                     ),
                 }
             )
-        elif (not self.ris_opt) and (self.uav_opt) and self.ma_scheme == "noma":
+        elif (
+            self.ris_opt and self.uav_opt and self.ma_scheme == "oma"
+        ):  # no power allocation
+            self.action_space = spaces.Dict(
+                {
+                    "uav": spaces.Discrete(5),  # left, right, up, down, stay
+                    "aris": spaces.Box(
+                        low=-1,
+                        high=1,
+                        shape=(self.cfg.n_elements,),
+                        dtype=np.float32,
+                    ),
+                    "tris": spaces.Box(
+                        low=-1,
+                        high=1,
+                        shape=(self.cfg.n_elements,),
+                        dtype=np.float32,
+                    ),
+                }
+            )
+        elif (
+            self.ris_opt and (not self.uav_opt) and self.ma_scheme == "noma"
+        ):  # hovering UAV
+            self.action_space = spaces.Dict(
+                {
+                    "bs1": spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
+                    "aris": spaces.Box(
+                        low=-1,
+                        high=1,
+                        shape=(self.cfg.n_elements,),
+                        dtype=np.float32,
+                    ),
+                    "tris": spaces.Box(
+                        low=-1,
+                        high=1,
+                        shape=(self.cfg.n_elements,),
+                        dtype=np.float32,
+                    ),
+                }
+            )
+            #self.cfg.init_ris_pos = self.cfg.uav_pos
+        elif (
+            (not self.ris_opt) and (self.uav_opt) and self.ma_scheme == "noma"
+        ):  # hovering UAV
             self.action_space = spaces.Dict(
                 {
                     "uav": spaces.Discrete(5),  # left, right, up, down, stay
                     "bs1": spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
                 }
             )
+            self.cfg.init_ris_pos = self.cfg.uav_pos
         else:
             raise ValueError("Invalid optimization scheme!")
 
@@ -364,51 +350,51 @@ class NetworkEnv(gym.Env):
 
         return float(r_sum + dist_inct)
 
-    # def _step_ris_uav_noma(self, action):
-    #     # UAV actions
-    #     # Update RIS actions to use cfg.n_elements
-    #     self.aRIS.phase_shifts = rescale(action["aris"][:self.cfg.n_elements], -np.pi, np.pi)
-    #     self.tRIS.phase_shifts = rescale(action["tris"][:self.cfg.n_elements], -np.pi, np.pi)
-    #     uav_action = ACTION_MAP[action["uav"]]
-    #     x, y, z = self.aRIS.position
+    def _step_ris_uav_noma(self, action):
+        # UAV actions
+        # Update RIS actions to use cfg.n_elements
+         # Update RIS actions to include amplification
+        self.aRIS.phase_shifts = rescale(action["aris_phase"], -np.pi, np.pi)
+        self.aRIS.amplification_factors = rescale(action["aris_amp"], 0, 2)  # Assuming max amplification of 2
+        self.tRIS.phase_shifts = rescale(action["tris_phase"], -np.pi, np.pi)
+        self.tRIS.amplification_factors = rescale(action["tris_amp"], 0, 2)
+        uav_action = ACTION_MAP[action["uav"]]
+        x, y, z = self.aRIS.position
 
-    #     if uav_action == "left":
-    #         next_pos = (x - 1, y, z)
-    #     elif uav_action == "right":
-    #         next_pos = (x + 1, y, z)
-    #     elif uav_action == "up":
-    #         next_pos = (x, y + 1, z)
-    #     elif uav_action == "down":
-    #         next_pos = (x, y - 1, z)
-    #     else:
-    #         next_pos = (x, y, z)
+        if uav_action == "left":
+            next_pos = (x - 1, y, z)
+        elif uav_action == "right":
+            next_pos = (x + 1, y, z)
+        elif uav_action == "up":
+            next_pos = (x, y + 1, z)
+        elif uav_action == "down":
+            next_pos = (x, y - 1, z)
+        else:
+            next_pos = (x, y, z)
 
-    #     if not (  # do not move out of the grid
-    #         (x <= self.cfg.grid[0][0])
-    #         or (y <= self.cfg.grid[1][0])
-    #         or (x >= self.cfg.grid[0][1])
-    #         or (y >= self.cfg.grid[1][1])
-    #     ):
-    #         self.aRIS.position = next_pos
-    #         self.oob = False
-    #     else:
-    #         self.oob = True
-    #         self.terminate_oob = True
+        if not (  # do not move out of the grid
+            (x <= self.cfg.grid[0][0])
+            or (y <= self.cfg.grid[1][0])
+            or (x >= self.cfg.grid[0][1])
+            or (y >= self.cfg.grid[1][1])
+        ):
+            self.aRIS.position = next_pos
+            self.oob = False
+        else:
+            self.oob = True
+            self.terminate_oob = True
 
-    #     self.dist[self.time_step % self.mean_win] = get_distance(
-    #         self.aRIS.position[:2], self.U_f.position[:2]
-    #     )
-    #     self.pos[self.time_step % self.mean_win] = self.aRIS.position
+        self.dist[self.time_step % self.mean_win] = get_distance(
+            self.aRIS.position[:2], self.U_f.position[:2]
+        )
+        self.pos[self.time_step % self.mean_win] = self.aRIS.position
 
-    #     # BS actions
-    #     self.BS1.alpha_f = rescale(action["bs1"], 0.5, 1.0)
+        # BS actions
+        self.BS1.alpha_f = rescale(action["bs1"], 0.5, 1.0)
 
-    #     # RIS actions
-    #     self.aRIS.phase_shifts = rescale(action["aris_phase"], -np.pi, np.pi)
-    #     self.aRIS.amplification_factors = rescale(action["aris_amp"], 0, 2)  # Assuming max amplification of 2
-    #     self.tRIS.phase_shifts = rescale(action["tris_phase"], -np.pi, np.pi)
-    #     self.tRIS.amplification_factors = rescale(action["tris_amp"], 0, 2)
-
+        # RIS actions
+        self.aRIS.phase_shifts = rescale(action["aris"], -np.pi, np.pi)
+        self.tRIS.phase_shifts = rescale(action["tris"], -np.pi, np.pi)
 
     def _step_ris_uav_oma(self, action):
         # UAV actions
@@ -453,33 +439,12 @@ class NetworkEnv(gym.Env):
         self.aRIS.phase_shifts = rescale(action["aris"], -np.pi, np.pi)
         self.tRIS.phase_shifts = rescale(action["tris"], -np.pi, np.pi)
 
-    def _step_ris_uav_noma(self, action):
-        # UAV actions
-        uav_action = ACTION_MAP[action["uav"]]
-        x, y, z = self.aRIS.position
-
-        if uav_action == "left":
-            next_pos = (x - 1, y, z)
-        elif uav_action == "right":
-            next_pos = (x + 1, y, z)
-        elif uav_action == "up":
-            next_pos = (x, y + 1, z)
-        elif uav_action == "down":
-            next_pos = (x, y - 1, z)
-        else:
-            next_pos = (x, y, z)
-
-        if not (  # do not move out of the grid
-            (x <= self.cfg.grid[0][0])
-            or (y <= self.cfg.grid[1][0])
-            or (x >= self.cfg.grid[0][1])
-            or (y >= self.cfg.grid[1][1])
-        ):
-            self.aRIS.position = next_pos
-            self.oob = False
-        else:
-            self.oob = True
-            self.terminate_oob = True
+    def _step_ris_no_uav_noma(self, action):
+        # Update RIS actions to use cfg.n_elements
+        self.aRIS.phase_shifts = rescale(action["aris"][:self.cfg.n_elements], -np.pi, np.pi)
+        self.tRIS.phase_shifts = rescale(action["tris"][:self.cfg.n_elements], -np.pi, np.pi)
+        self.oob = False
+        self.terminate_oob = False
 
         self.dist[self.time_step % self.mean_win] = get_distance(
             self.aRIS.position[:2], self.U_f.position[:2]
@@ -490,11 +455,8 @@ class NetworkEnv(gym.Env):
         self.BS1.alpha_f = rescale(action["bs1"], 0.5, 1.0)
 
         # RIS actions
-        self.aRIS.phase_shifts = rescale(action["aris_phase"], -np.pi, np.pi)
-        self.aRIS.amplification_factors = rescale(action["aris_amp"], 0, 2)  # Assuming max amplification of 2
-        self.tRIS.phase_shifts = rescale(action["tris_phase"], -np.pi, np.pi)
-        self.tRIS.amplification_factors = rescale(action["tris_amp"], 0, 2)
-
+        self.aRIS.phase_shifts = rescale(action["aris"], -np.pi, np.pi)
+        self.tRIS.phase_shifts = rescale(action["tris"], -np.pi, np.pi)
 
     def _step_uav_noma(self, action):
         # UAV actions
@@ -586,11 +548,15 @@ class NetworkEnv(gym.Env):
 
         self.BS1.alpha_f = 0.5 + np.finfo(np.float32).eps
 
-        # Reset RIS coefficients
+        # coefficients
+        # Reset RIS amplification factors
         self.aRIS.amplification_factors = np.ones(self.cfg.n_elements)
+        self.tRIS.amplification_factors = np.ones(self.cfg.n_elements)
+
+        self.aRIS.amplitudes = np.ones(self.cfg.n_elements)
         self.aRIS.phase_shifts = np.zeros(self.cfg.shape_ris)
 
-        self.tRIS.amplification_factors = np.ones(self.cfg.n_elements)
+        self.tRIS.amplitudes = np.ones(self.cfg.n_elements)
         self.tRIS.phase_shifts = np.zeros(self.cfg.shape_ris)
 
         self.aRIS.position = self.cfg.init_ris_pos

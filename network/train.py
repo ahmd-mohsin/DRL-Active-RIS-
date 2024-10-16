@@ -167,11 +167,12 @@ def main():
 
     try:
         check_env(env)
+        print(colored("Environment check passed", "green"))
     except Exception as e:
         print(colored("Environment check failed", "red"))
         print(e)
         exit(1)
-
+        
     if args.param_file is None:
         try:
             args.param_file = f"./params/{MODEL.lower()}.yaml"

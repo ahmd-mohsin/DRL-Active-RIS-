@@ -162,6 +162,15 @@ def init_links(
     return links
 
 
+class ActiveRIS(RIS):
+    def __init__(self, name, n_elements, position):
+        super().__init__(name, n_elements, position)
+        self.amplification_factors = np.ones(n_elements)
+
+    def apply_phase_and_amplification(self, input_signal):
+        # Apply both phase shifts and amplification
+        return input_signal * self.amplification_factors * np.exp(1j * self.phase_shifts)
+
 def csc_channel(
     to_ris: Link,
     from_ris: Link,
@@ -233,14 +242,14 @@ def update_links(links, ex_pathloss=False, ex_rvs=True, seed_fac=None):
 def get_channels(
     cfg: Box,
     links: dict,
-    aRIS: RIS,
-    tRIS: RIS,
+    aRIS: ActiveRIS,
+    tRIS: ActiveRIS,
     t: int,
     magnitude: bool = False,
     no_ris=False,
 ):
     """
-    Compute the effective channel gains.
+    Compute the effective channel gains with active RIS.
     """
 
     link_1c, link_2nc, link_2f, link_3c = (
@@ -269,26 +278,26 @@ def get_channels(
     if not no_ris:
         H_1c = eff_channel(
             link_1c, link_1ar,
-            link_arc, aRIS.amplitudes,
+            link_arc, aRIS.amplification_factors,
             aRIS.phase_shifts, t, magnitude
         )
         H_2nc = eff_channel(
             link_2nc, link_2tr,
-            link_trnc, tRIS.amplitudes,
+            link_trnc, tRIS.amplification_factors,
             tRIS.phase_shifts, t, magnitude,
         )
 
         H_1f = csc_channel(
-            link_1ar, link_arf, aRIS.amplitudes,
+            link_1ar, link_arf, aRIS.amplification_factors,
             aRIS.phase_shifts, t, magnitude
         )
         H_2f = eff_channel(
             link_2f, link_2tr,
-            link_trf, tRIS.amplitudes,
+            link_trf, tRIS.amplification_factors,
             tRIS.phase_shifts, t, magnitude
         )
         H_3f = csc_channel(
-            link_3ar, link_arf, aRIS.amplitudes,
+            link_3ar, link_arf, aRIS.amplification_factors,
             aRIS.phase_shifts, t, magnitude
         )
     # fmt: on
@@ -308,8 +317,13 @@ def get_channels(
         "h_2f": h_2f,
         "h_3c": h_3c,
     }
+
     # Add noise introduced by active RIS
-    channels['ris_noise'] = np.random.normal(0, np.sqrt(cfg.sigma2), (cfg.n_elements, 1))
+    if not no_ris:
+        aRIS_noise = np.random.normal(0, np.sqrt(cfg.sigma2), (cfg.n_elements, 1)) * aRIS.amplification_factors.reshape(-1, 1)
+        tRIS_noise = np.random.normal(0, np.sqrt(cfg.sigma2), (cfg.n_elements, 1)) * tRIS.amplification_factors.reshape(-1, 1)
+        channels['aRIS_noise'] = aRIS_noise
+        channels['tRIS_noise'] = tRIS_noise
 
     return channels
 
